@@ -1,0 +1,646 @@
+<!--
+Game: Cultivation RPG (One-page)
+Core Loop: Meditate to gain Qi, use Qi + items to attempt breakthroughs, learn/upgrade skills, trigger encounters (simple turn-based combat), manage resources.
+Systems: Cultivation realms & stages, bottlenecks with breakthrough chance, skills with cooldowns, random events, simple enemy fights.
+Constraints: Single HTML file; inline CSS/JS; no external assets.
+Accessibility: Keyboard navigation, aria-live status, focus management.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Cultivation RPG</title>
+  <style>
+    :root{--bg:#0b1220;--panel:#121a2b;--accent:#22d3ee;--accent2:#86efac;--text:#e5e7eb;--muted:#9aa5b1;--danger:#f43f5e;--warn:#f59e0b}
+    body{margin:0;background:radial-gradient(100% 120% at 50% 0%,#16223a 0%,#0b1220 60%);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;display:flex;justify-content:center;padding:24px}
+    .wrap{width:min(980px,100%);display:grid;grid-template-columns:1fr 320px;gap:16px}
+    .card{background:linear-gradient(180deg,#121a2b,#0e1628);border:1px solid #22314c;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.35);padding:16px}
+    h1{margin:0 0 12px;font-size:22px;background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;background-clip:text;color:transparent}
+    h2{margin:0 0 10px;font-size:16px;color:#dbeafe}
+    .row{display:flex;gap:8px;flex-wrap:wrap}
+    .pill{background:#1c2942;border:1px solid #2a3d5e;border-radius:999px;padding:6px 10px;font-size:12px}
+    .btn{background:var(--accent);color:#042c37;border:0;border-radius:10px;padding:8px 12px;font-weight:700;cursor:pointer}
+    .btn.secondary{background:#23334f;color:var(--text)}
+    .btn.warn{background:var(--warn);color:#3b2205}
+    .btn.danger{background:var(--danger);color:#3e0610}
+    .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+    .log{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;line-height:1.4;max-height:320px;overflow:auto;background:#0a1120;border:1px solid #20314d;border-radius:10px;padding:10px;color:#cbd5e1}
+    .sep{height:1px;background:#22314c;margin:10px 0}
+    .stat{display:flex;justify-content:space-between}
+    .muted{color:var(--muted)}
+  </style>
+</head>
+<body>
+  <div class="wrap" role="application" aria-label="Cultivation RPG">
+    <div class="card">
+      <h1>Cultivation RPG</h1>
+      <div class="row">
+        <div class="pill" id="realm">Realm: Qi Condensation 1</div>
+        <div class="pill" id="qi">Qi: 0</div>
+        <div class="pill" id="spirit">Spirits: 0</div>
+        <div class="pill" id="pills">Pills: 0</div>
+        <div class="pill" id="rep">Reputation: 0</div>
+      </div>
+      <div class="sep"></div>
+      <div class="grid">
+        <button class="btn" id="meditate">Meditate (+Qi)</button>
+        <button class="btn warn" id="breakthrough">Attempt Breakthrough</button>
+        <button class="btn secondary" id="adventure">Adventure (Event)</button>
+        <button class="btn secondary" id="learn">Learn Skill</button>
+        <button class="btn secondary" id="brew">Brew Pill</button>
+        <button class="btn danger" id="rest">Rest</button>
+      </div>
+      <div class="sep"></div>
+      <h2>Skills</h2>
+      <div id="skills" class="row muted">None learned</div>
+      <div class="sep"></div>
+      <h2>Log</h2>
+      <div id="log" class="log" aria-live="polite"></div>
+    </div>
+    <div class="card">
+      <h2>Details</h2>
+      <div class="stat"><span>Breakthrough chance</span><span id="chance">-</span></div>
+      <div class="stat"><span>Difficulty</span><span id="difficulty">Normal</span></div>
+      <div class="stat"><span>Timer</span><span id="timer">0s</span></div>
+      <div class="sep"></div>
+      <h2>Best Records</h2>
+      <div class="stat"><span>Highest Realm</span><span id="bestRealm">-</span></div>
+      <div class="stat"><span>Fastest to Foundation</span><span id="bestTime">-</span></div>
+    </div>
+  </div>
+
+  <script>
+  (function(){
+    // Data
+    const realms=[
+      {name:'Qi Condensation', stages:9, base:0.10},
+      {name:'Foundation Establishment', stages:9, base:0.07},
+      {name:'Core Formation', stages:9, base:0.05},
+      {name:'Nascent Soul', stages:9, base:0.04}
+    ];
+    let realmIndex=0, stage=1;
+    let qi=0, spirits=0, pills=0, rep=0;
+    let skills=[]; // {name, level}
+    let startTime=Date.now();
+    let timerHandle = setInterval(()=>{ document.getElementById('timer').textContent = Math.floor((Date.now()-startTime)/1000)+'s'; },1000);
+
+    // Elements
+    const el={
+      realm:document.getElementById('realm'), qi:document.getElementById('qi'), spirit:document.getElementById('spirit'), pills:document.getElementById('pills'), rep:document.getElementById('rep'),
+      meditate:document.getElementById('meditate'), breakthrough:document.getElementById('breakthrough'), adventure:document.getElementById('adventure'), learn:document.getElementById('learn'), brew:document.getElementById('brew'), rest:document.getElementById('rest'),
+      chance:document.getElementById('chance'), difficulty:document.getElementById('difficulty'),
+      skills:document.getElementById('skills'), log:document.getElementById('log'),
+      bestRealm:document.getElementById('bestRealm'), bestTime:document.getElementById('bestTime')
+    };
+
+    // Utils
+    const rand=(a,b)=>Math.random()*(b-a)+a;
+    const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+    function log(msg){ const d=document.createElement('div'); d.textContent=msg; el.log.prepend(d); }
+    function updateHUD(){
+      el.realm.textContent = `Realm: ${realms[realmIndex].name} ${stage}`;
+      el.qi.textContent = `Qi: ${qi}`;
+      el.spirit.textContent = `Spirits: ${spirits}`;
+      el.pills.textContent = `Pills: ${pills}`;
+      el.rep.textContent = `Reputation: ${rep}`;
+      const base=realms[realmIndex].base; const bonus = Math.min(0.25, (pills*0.02) + (skills.find(s=>s.name==='Alchemy')?.level||0)*0.01 + rep*0.001);
+      el.chance.textContent = Math.round((base+bonus)*100)+'%';
+      // records
+      el.bestRealm.textContent = localStorage.getItem('bestRealm')||'-';
+      el.bestTime.textContent = localStorage.getItem('bestTime')||'-';
+    }
+
+    function saveRecords(){
+      const current = `${realms[realmIndex].name} ${stage}`;
+      const prev = localStorage.getItem('bestRealm');
+      if(!prev || compareRealm(current, prev) > 0){ localStorage.setItem('bestRealm', current); }
+      // fastest to Foundation Establishment 1
+      if(realms[realmIndex].name==='Foundation Establishment' && stage===1){
+        const t = Math.floor((Date.now()-startTime)/1000)+'s';
+        const prevT = localStorage.getItem('bestTime');
+        if(!prevT || parseInt(t) < parseInt(prevT)) localStorage.setItem('bestTime', t);
+      }
+    }
+    function compareRealm(a,b){
+      // simple comparator: by realm order, then stage
+      const [r1, s1] = a.split(' '); const [r2, s2] = b.split(' ');
+      const i1=realms.findIndex(x=>a.startsWith(x.name));
+      const i2=realms.findIndex(x=>b.startsWith(x.name));
+      if(i1!==i2) return i1-i2; return parseInt(s1)-parseInt(s2);
+    }
+
+    function meditate(){
+      const gain = 1 + Math.floor((skills.find(s=>s.name==='Meditation')?.level||0)*0.5);
+      qi += gain;
+      spirits += Math.random()<0.1?1:0;
+      log(`Meditated: +${gain} Qi` + (spirits? ' (+1 spirit)':''));
+      maybeEvent(0.15);
+      updateHUD();
+    }
+
+    function breakthrough(){
+      const base=realms[realmIndex].base;
+      const bonus = Math.min(0.25, (pills*0.02) + (skills.find(s=>s.name==='Alchemy')?.level||0)*0.01 + rep*0.001);
+      const needQi = 10 + realmIndex*10 + stage*2;
+      if(qi < needQi){ log(`Not enough Qi (${qi}/${needQi}).`); return; }
+      qi -= needQi;
+      const roll = Math.random();
+      if(roll < base+bonus){
+        stage++;
+        log(`Breakthrough succeeded! Stage is now ${stage}.`);
+        if(stage>realms[realmIndex].stages){ realmIndex++; stage=1; log(`Advanced to ${realms[realmIndex].name}!`); saveRecords(); }
+      } else {
+        log('Breakthrough failed. Qi dissipates.');
+      }
+      updateHUD();
+    }
+
+    function learnSkill(){
+      const pool=['Meditation','Alchemy','Sword Arts'];
+      const pick = pool[Math.floor(rand(0,pool.length))];
+      const found = skills.find(s=>s.name===pick);
+      if(found){ found.level++; log(`${pick} improved to Lv.${found.level}`); }
+      else { skills.push({name:pick, level:1}); log(`Learned ${pick} Lv.1`); }
+      renderSkills(); updateHUD();
+    }
+    function renderSkills(){
+      if(skills.length===0){ el.skills.textContent='None learned'; return; }
+      el.skills.textContent='';
+      skills.forEach(s=>{ const d=document.createElement('div'); d.className='pill'; d.textContent=`${s.name} Lv.${s.level}`; el.skills.appendChild(d); });
+    }
+
+    function brewPill(){
+      const cost = 2;
+      if(spirits<cost){ log(`Need ${cost} spirits.`); return; }
+      spirits-=cost; pills++;
+      log('Brewed a basic pill (+2% breakthrough chance cap applies).');
+      updateHUD();
+    }
+
+    function rest(){ log('You rest and recover focus.'); }
+
+    function adventure(){
+      // random event: find item, fight enemy, meet elder
+      const r=Math.random();
+      if(r<0.4){
+        rep+=1; log('Helped a villager. Reputation +1.');
+      } else if(r<0.8){
+        fight();
+      } else {
+        spirits+=1; log('Found a spirit herb (+1).');
+      }
+      updateHUD();
+    }
+
+    function fight(){
+      const power = realmIndex*5 + stage*1.5 + (skills.find(s=>s.name==='Sword Arts')?.level||0)*2;
+      const enemy = {name:'Bandit', hp: 10 + Math.floor(rand(0,10)), atk: 2 + Math.floor(rand(0,3))};
+      let hp= 12 + Math.floor(power/2);
+      log(`Encountered ${enemy.name}!`);
+      // simple turn-based
+      while(hp>0 && enemy.hp>0){
+        const dmg = 2 + Math.floor(rand(0,power/3+2)); enemy.hp -= dmg; log(`You strike for ${dmg}. (${Math.max(enemy.hp,0)} HP left)`);
+        if(enemy.hp<=0) break;
+        const edmg = enemy.atk + Math.floor(rand(0,3)); hp -= edmg; log(`${enemy.name} hits for ${edmg}. (${Math.max(hp,0)} HP left)`);
+      }
+      if(hp>0){ rep+=2; qi+=3; log('Victory! +2 rep, +3 Qi.'); }
+      else { rep=Math.max(0,rep-1); log('Defeated. Reputation -1.'); }
+    }
+
+    // Events
+    function maybeEvent(p){ if(Math.random()<p) adventure(); }
+
+    // Bindings
+    el.meditate.addEventListener('click', meditate);
+    el.breakthrough.addEventListener('click', breakthrough);
+    el.adventure.addEventListener('click', adventure);
+    el.learn.addEventListener('click', learnSkill);
+    el.brew.addEventListener('click', brewPill);
+    el.rest.addEventListener('click', rest);
+
+    // Keyboard shortcuts
+    window.addEventListener('keydown', e=>{
+      const k=e.key.toLowerCase();
+      if(k==='m') meditate();
+      else if(k==='b') breakthrough();
+      else if(k==='a') adventure();
+      else if(k==='l') learnSkill();
+      else if(k==='p') brewPill();
+      else if(k==='r') rest();
+    });
+
+    updateHUD();
+  })();
+  </script>
+</body>
+</html>
+<!--
+Game: Cultivation RPG (single-file)
+Loop: Meditate to gain Qi -> Train skills -> Explore for resources/events -> Attempt breakthroughs to advance realms -> Fight enemies when encountered.
+Realms: Mortal -> Qi Condensation (1-9) -> Foundation Establishment (1-3) [demo caps here]
+Resources: Qi (for breakthroughs/skills), Spirit Stones (currency), Pills (boost breakthrough), HP (health).
+Skills: Meridian Flow (Qi gain), Fist Technique (damage), Body Tempering (HP), Footwork (evasion).
+Breakthroughs: Require Qi >= threshold; success chance increases with Pill use and skill; failure drains Qi and HP.
+Combat: Simple turn-based vs. a generated enemy; actions: Attack, Defend, Skill, Pill, Flee.
+Accessibility: Keyboard support for tabs/actions, aria-live status updates. Single-file (inline CSS+JS, no external assets).
+-->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Cultivation RPG</title>
+  <style>
+    :root{--bg:#0b1220;--panel:#111a2e;--panel2:#16213f;--text:#e5e7eb;--muted:#94a3b8;--accent:#22d3ee;--accent2:#7c3aed;--warn:#f59e0b;--danger:#ef4444;--ok:#10b981}
+    html,body{height:100%}
+    body{margin:0;background:radial-gradient(1200px 600px at 40% -10%,#1a2750,#0b1220 60%);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}
+    .wrap{max-width:980px;margin:24px auto;padding:16px}
+  h1{margin:0 0 12px;font-size:22px;background:linear-gradient(90deg,var(--accent),var(--accent2));background-clip:text;-webkit-background-clip:text;color:transparent}
+    .hud{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+    .chip{background:linear-gradient(180deg,#16213f,#101833);border:1px solid #233258;border-radius:999px;padding:6px 10px;font-size:13px}
+    .bars{display:grid;grid-template-columns:1fr;gap:8px;margin-bottom:12px}
+    .bar{background:#0d1427;border:1px solid #233258;border-radius:8px;overflow:hidden;height:16px;position:relative}
+    .fill{height:100%;background:linear-gradient(90deg,var(--accent2),var(--accent));width:0}
+    .bar .label{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:12px;color:#d1d5db}
+    .tabs{display:flex;gap:8px;margin:8px 0 12px}
+    .tabs button{background:#0f1830;border:1px solid #233258;color:#e5e7eb;padding:8px 12px;border-radius:8px;cursor:pointer}
+    .tabs button.active{outline:2px solid var(--accent);}
+    .panel{background:linear-gradient(180deg,#0f1830,#0b1428);border:1px solid #233258;border-radius:12px;padding:12px}
+    .row{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+    .btn{background:linear-gradient(180deg,#1a2d55,#142448);border:1px solid #284070;color:#e5e7eb;padding:8px 12px;border-radius:8px;cursor:pointer}
+    .btn:disabled{opacity:.6;cursor:not-allowed}
+    .btn.warn{background:#3a2a09;border-color:#8a620a}
+    .btn.danger{background:#3a1212;border-color:#7a1d1d}
+    .list{display:grid;gap:8px}
+    .list .item{display:flex;justify-content:space-between;align-items:center;background:#0d152a;border:1px solid #223257;border-radius:10px;padding:8px}
+    .status{margin-top:10px;color:var(--muted);font-size:13px}
+    .combat{display:none}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .small{font-size:12px;color:var(--muted)}
+  </style>
+</head>
+<body>
+  <div class="wrap" role="application" aria-label="Cultivation RPG">
+    <h1>Cultivation RPG</h1>
+
+    <div class="hud" id="hud">
+      <div class="chip" id="realmChip">Realm: Mortal</div>
+      <div class="chip" id="qiChip">Qi: 0 / 100</div>
+      <div class="chip" id="hpChip">HP: 100 / 100</div>
+      <div class="chip" id="stonesChip">Stones: 0</div>
+      <div class="chip" id="pillsChip">Pills: 0</div>
+      <div class="chip" id="powerChip">Power: 1</div>
+    </div>
+
+    <div class="bars">
+      <div class="bar" aria-label="Qi progress"><div class="fill" id="qiFill"></div><div class="label" id="qiLabel">Qi 0%</div></div>
+      <div class="bar" aria-label="HP progress"><div class="fill" id="hpFill" style="background:linear-gradient(90deg,#ef4444,#f59e0b)"></div><div class="label" id="hpLabel">HP 100%</div></div>
+    </div>
+
+    <div class="tabs" role="tablist">
+      <button class="active" role="tab" id="tab-cultivate">Cultivate</button>
+      <button role="tab" id="tab-train">Train</button>
+      <button role="tab" id="tab-explore">Explore</button>
+      <button role="tab" id="tab-inventory">Inventory</button>
+    </div>
+
+    <div class="panel" id="panel-cultivate" role="tabpanel">
+      <div class="row">
+        <button class="btn" id="meditateBtn">Meditate (+Qi)</button>
+        <button class="btn" id="breakthroughBtn">Attempt Breakthrough</button>
+        <button class="btn warn" id="usePillBtn">Consume Pill (+success)</button>
+      </div>
+      <div class="small">Breakthrough requires sufficient Qi. Pills increase success chance. Failure drains Qi and HP.</div>
+      <div class="status" id="statusCultivate" aria-live="polite"></div>
+    </div>
+
+    <div class="panel" id="panel-train" role="tabpanel" hidden>
+      <div class="list">
+        <div class="item"><div>
+          <div><strong>Meridian Flow</strong> — Boosts Qi gain</div>
+          <div class="small">Level <span id="lvMeridian">1</span></div>
+        </div><button class="btn" id="trainMeridian">Train (5 Stones)</button></div>
+
+        <div class="item"><div>
+          <div><strong>Fist Technique</strong> — Increases damage</div>
+          <div class="small">Level <span id="lvFist">1</span></div>
+        </div><button class="btn" id="trainFist">Train (5 Stones)</button></div>
+
+        <div class="item"><div>
+          <div><strong>Body Tempering</strong> — Increases max HP</div>
+          <div class="small">Level <span id="lvBody">1</span></div>
+        </div><button class="btn" id="trainBody">Train (5 Stones)</button></div>
+
+        <div class="item"><div>
+          <div><strong>Footwork</strong> — Evasion up</div>
+          <div class="small">Level <span id="lvFoot">1</span></div>
+        </div><button class="btn" id="trainFoot">Train (5 Stones)</button></div>
+      </div>
+      <div class="status" id="statusTrain" aria-live="polite"></div>
+    </div>
+
+    <div class="panel" id="panel-explore" role="tabpanel" hidden>
+      <div class="row">
+        <button class="btn" id="exploreBtn">Explore Area</button>
+      </div>
+      <div class="status" id="statusExplore" aria-live="polite">Find resources or encounter foes.</div>
+      <div class="list" id="log"></div>
+    </div>
+
+    <div class="panel" id="panel-inventory" role="tabpanel" hidden>
+      <div>Spirit Stones: <span id="invStones">0</span></div>
+      <div>Pills: <span id="invPills">0</span></div>
+      <div class="status">Use pills from Cultivate panel for breakthrough boosts.</div>
+    </div>
+
+    <div class="panel combat" id="panel-combat" role="dialog" aria-live="polite">
+      <div><strong>Combat Encounter</strong></div>
+      <div class="grid2">
+        <div>
+          <div class="small">You</div>
+          <div>HP: <span id="youHP">0</span>/<span id="youHPMax">0</span></div>
+          <div>Power: <span id="youPow">0</span></div>
+        </div>
+        <div>
+          <div class="small">Enemy</div>
+          <div>HP: <span id="enHP">0</span>/<span id="enHPMax">0</span></div>
+          <div>Power: <span id="enPow">0</span></div>
+        </div>
+      </div>
+      <div class="row">
+        <button class="btn" id="actAttack">Attack</button>
+        <button class="btn" id="actDefend">Defend</button>
+        <button class="btn" id="actSkill">Skill (Qi 10)</button>
+        <button class="btn" id="actFlee">Flee</button>
+      </div>
+      <div class="status" id="statusCombat"></div>
+    </div>
+
+  </div>
+
+  <script>
+  (function(){
+    const state = {
+      realmTier: 0, // 0 Mortal, 1 Qi Condensation, 2 Foundation
+      realmLevel: 0, // level within tier
+      qi: 0, qiCap: 100,
+      hp: 100, hpMax: 100,
+      stones: 0, pills: 0,
+      skills: { meridian:1, fist:1, body:1, foot:1 },
+      power: 1,
+      pillBoost: 0, // temporary breakthrough boost
+      combat: null
+    };
+
+    const tiers = [
+      {name:'Mortal', levels:1, baseQiCap:100, btBase:0},
+      {name:'Qi Condensation', levels:9, baseQiCap:120, btBase:45},
+      {name:'Foundation Establishment', levels:3, baseQiCap:200, btBase:30}
+    ];
+
+    const els = {
+      realmChip: q('#realmChip'), qiChip: q('#qiChip'), hpChip: q('#hpChip'), stonesChip: q('#stonesChip'), pillsChip: q('#pillsChip'), powerChip: q('#powerChip'),
+      qiFill: q('#qiFill'), qiLabel: q('#qiLabel'), hpFill: q('#hpFill'), hpLabel: q('#hpLabel'),
+      tabCultivate: q('#tab-cultivate'), tabTrain:q('#tab-train'), tabExplore:q('#tab-explore'), tabInventory:q('#tab-inventory'),
+      panelCultivate:q('#panel-cultivate'), panelTrain:q('#panel-train'), panelExplore:q('#panel-explore'), panelInventory:q('#panel-inventory'), panelCombat:q('#panel-combat'),
+      meditateBtn:q('#meditateBtn'), breakthroughBtn:q('#breakthroughBtn'), usePillBtn:q('#usePillBtn'),
+      statusCultivate:q('#statusCultivate'), statusTrain:q('#statusTrain'), statusExplore:q('#statusExplore'), log:q('#log'),
+      lvMeridian:q('#lvMeridian'), lvFist:q('#lvFist'), lvBody:q('#lvBody'), lvFoot:q('#lvFoot'),
+      trainMeridian:q('#trainMeridian'), trainFist:q('#trainFist'), trainBody:q('#trainBody'), trainFoot:q('#trainFoot'),
+      invStones:q('#invStones'), invPills:q('#invPills'),
+      youHP:q('#youHP'), youHPMax:q('#youHPMax'), youPow:q('#youPow'), enHP:q('#enHP'), enHPMax:q('#enHPMax'), enPow:q('#enPow'),
+      actAttack:q('#actAttack'), actDefend:q('#actDefend'), actSkill:q('#actSkill'), actFlee:q('#actFlee'), statusCombat:q('#statusCombat')
+    };
+
+    function q(s){return document.querySelector(s)}
+
+    // UI routing
+    const tabs = [
+      ['tab-cultivate','panel-cultivate'],
+      ['tab-train','panel-train'],
+      ['tab-explore','panel-explore'],
+      ['tab-inventory','panel-inventory'],
+    ];
+    tabs.forEach(([t,p])=>{
+      q('#'+t).addEventListener('click',()=>selectTab(t,p));
+    });
+    function selectTab(tid,pid){
+      tabs.forEach(([t,p])=>{
+        q('#'+t).classList.toggle('active', t===tid);
+        q('#'+p).hidden = p!==pid;
+      });
+    }
+
+    // Derived stats
+    function recalc(){
+      const tier = tiers[state.realmTier];
+      state.qiCap = tier.baseQiCap + (state.realmLevel*20) + state.skills.meridian*10;
+      state.power = 1 + state.skills.fist*2 + state.realmTier*4 + state.realmLevel;
+      state.hpMax = 100 + state.skills.body*15 + state.realmTier*40 + state.realmLevel*5;
+      if(state.hp>state.hpMax) state.hp = state.hpMax;
+      if(state.qi>state.qiCap) state.qi = state.qiCap;
+    }
+
+    function fmtRealm(){
+      const t = tiers[state.realmTier];
+      if(state.realmTier===0) return 'Mortal';
+      return `${t.name} ${state.realmLevel}/${t.levels}`;
+    }
+
+    function updateHUD(){
+      els.realmChip.textContent = 'Realm: '+fmtRealm();
+      els.qiChip.textContent = `Qi: ${Math.floor(state.qi)} / ${Math.floor(state.qiCap)}`;
+      els.hpChip.textContent = `HP: ${Math.floor(state.hp)} / ${Math.floor(state.hpMax)}`;
+      els.stonesChip.textContent = 'Stones: '+state.stones;
+      els.pillsChip.textContent = 'Pills: '+state.pills;
+      els.powerChip.textContent = 'Power: '+state.power;
+      const qiPct = Math.floor((state.qi/state.qiCap)*100);
+      els.qiFill.style.width = qiPct+'%';
+      els.qiLabel.textContent = 'Qi '+qiPct+'%';
+      const hpPct = Math.max(0,Math.floor((state.hp/state.hpMax)*100));
+      els.hpFill.style.width = hpPct+'%';
+      els.hpLabel.textContent = 'HP '+hpPct+'%';
+      els.lvMeridian.textContent = state.skills.meridian;
+      els.lvFist.textContent = state.skills.fist;
+      els.lvBody.textContent = state.skills.body;
+      els.lvFoot.textContent = state.skills.foot;
+      els.invStones.textContent = state.stones;
+      els.invPills.textContent = state.pills;
+    }
+
+    // Actions
+    els.meditateBtn.addEventListener('click',()=>{
+      const gain = 5 + state.skills.meridian*3 + state.realmTier*2;
+      state.qi = Math.min(state.qiCap, state.qi + gain);
+      msg(els.statusCultivate, `Meditated: +${gain} Qi`);
+      update();
+    });
+
+    els.usePillBtn.addEventListener('click',()=>{
+      if(state.pills<=0){ msg(els.statusCultivate,'No pills.'); return; }
+      state.pills--; state.pillBoost += 20; // +20% success for next breakthrough
+      msg(els.statusCultivate,'Consumed pill: breakthrough success +20% (next attempt)');
+      update();
+    });
+
+    els.breakthroughBtn.addEventListener('click',()=>{
+      const need = btCost();
+      if(state.qi < need){ msg(els.statusCultivate,`Need ${need} Qi to attempt.`); return; }
+      const base = tiers[state.realmTier].btBase || 60;
+      const chance = Math.min(95, base + state.realmLevel*3 + state.skills.meridian*2 + state.pillBoost);
+      state.pillBoost = 0;
+      state.qi -= need;
+      const roll = Math.random()*100;
+      if(roll < chance){
+        // success
+        if(state.realmTier===0){ state.realmTier=1; state.realmLevel=1; }
+        else {
+          state.realmLevel++;
+          const t = tiers[state.realmTier];
+          if(state.realmLevel>t.levels){ state.realmTier=Math.min(tiers.length-1,state.realmTier+1); state.realmLevel=1; }
+        }
+        msg(els.statusCultivate,`Breakthrough! Advanced to ${fmtRealm()}.`);
+      } else {
+        // fail
+        const hpLoss = 10 + Math.floor(Math.random()*10);
+        state.hp = Math.max(0, state.hp - hpLoss);
+        msg(els.statusCultivate,`Failed breakthrough (-${hpLoss} HP). Train and try again.`);
+      }
+      recalc(); update();
+    });
+
+    // Training
+    function trainSkill(key){
+      const cost=5;
+      if(state.stones<cost){ msg(els.statusTrain,'Not enough Spirit Stones.'); return; }
+      state.stones -= cost; state.skills[key]++;
+      if(key==='body') state.hp += 10;
+      msg(els.statusTrain,`Trained ${label(key)} to Lv ${state.skills[key]}.`);
+      recalc(); update();
+    }
+    function label(k){return {meridian:'Meridian Flow', fist:'Fist Technique', body:'Body Tempering', foot:'Footwork'}[k]}
+    els.trainMeridian.addEventListener('click',()=>trainSkill('meridian'));
+    els.trainFist.addEventListener('click',()=>trainSkill('fist'));
+    els.trainBody.addEventListener('click',()=>trainSkill('body'));
+    els.trainFoot.addEventListener('click',()=>trainSkill('foot'));
+
+    // Exploration
+    els.exploreBtn.addEventListener('click',()=>{
+      const r = Math.random();
+      if(r<0.4){
+        const found = 5 + Math.floor(Math.random()*6);
+        state.stones += found;
+        log(`Found ${found} Spirit Stones.`);
+      } else if(r<0.55){
+        state.pills += 1; log('Found a pill!');
+      } else if(r<0.85){
+        startCombat();
+      } else {
+        const heal = 5 + Math.floor(Math.random()*6);
+        state.hp = Math.min(state.hpMax, state.hp + heal);
+        log(`Rested at a serene spring (+${heal} HP).`);
+      }
+      update();
+    });
+
+    // Combat system
+    function startCombat(){
+      const enemy = genEnemy();
+      state.combat = { enemy, defend:false };
+      showCombat(true);
+      updateCombatHUD();
+      msg(els.statusCombat,`Encountered ${enemy.name}!`);
+    }
+    function genEnemy(){
+      const scale = 1 + state.realmTier*0.8 + state.realmLevel*0.2;
+      const hp = Math.floor(60*scale + state.skills.body*5);
+      const pow = Math.floor(6*scale + state.realmTier*2);
+      const names = ['Bandit','Wild Beast','Rogue Cultivator','Forest Spider'];
+      return {name:names[Math.floor(Math.random()*names.length)], hp, hpMax:hp, power:pow};
+    }
+    function showCombat(v){
+      els.panelCombat.style.display = v? 'block':'none';
+      // hide other panels to focus
+      [els.panelCultivate,els.panelTrain,els.panelExplore,els.panelInventory].forEach(p=>p.hidden=v);
+    }
+    function updateCombatHUD(){
+      const e = state.combat.enemy;
+      els.youHP.textContent = Math.floor(state.hp);
+      els.youHPMax.textContent = Math.floor(state.hpMax);
+      els.youPow.textContent = state.power;
+      els.enHP.textContent = Math.floor(e.hp);
+      els.enHPMax.textContent = Math.floor(e.hpMax);
+      els.enPow.textContent = e.power;
+    }
+    function playerAttack(mult=1){
+      const dodge = 0.03*state.skills.foot;
+      const dmg = Math.floor((state.power + Math.random()*state.skills.fist)*mult);
+      state.combat.enemy.hp = Math.max(0, state.combat.enemy.hp - dmg);
+      msg(els.statusCombat,`You hit ${state.combat.enemy.name} for ${dmg}.`);
+      if(state.combat.enemy.hp<=0){
+        const reward = 8 + Math.floor(Math.random()*8);
+        state.stones += reward;
+        log(`Victory! Looted ${reward} Spirit Stones.`);
+        showCombat(false); state.combat=null; update(); return;
+      }
+      // enemy turn
+      const evaded = Math.random()<dodge;
+      if(evaded){ msg(els.statusCombat,`You evaded the attack!`); updateCombatHUD(); return; }
+      const eDmg = Math.floor(state.combat.enemy.power + Math.random()*4) - (state.combat.defend? 5:0);
+      state.combat.defend = false;
+      state.hp = Math.max(0, state.hp - Math.max(1,eDmg));
+      if(state.hp<=0){ msg(els.statusCombat,'You were defeated...'); showCombat(false); state.combat=null; update(); return; }
+      updateCombatHUD();
+    }
+    els.actAttack.addEventListener('click',()=>playerAttack(1));
+    els.actDefend.addEventListener('click',()=>{ state.combat.defend=true; msg(els.statusCombat,'You brace yourself.'); playerAttack(0); });
+    els.actSkill.addEventListener('click',()=>{
+      if(state.qi<10){ msg(els.statusCombat,'Not enough Qi.'); return; }
+      state.qi-=10; playerAttack(1.6);
+      update();
+    });
+    els.actFlee.addEventListener('click',()=>{
+      if(Math.random()<0.65){ msg(els.statusCombat,'You fled successfully.'); showCombat(false); state.combat=null; }
+      else { msg(els.statusCombat,'Failed to flee.'); playerAttack(0); }
+      update();
+    });
+
+    // Helpers
+    function btCost(){
+      const base = 50 + state.realmLevel*20 + state.realmTier*30;
+      return Math.floor(base);
+    }
+    function msg(el, text){ el.textContent = text; }
+    function log(text){ const div=document.createElement('div'); div.className='item'; div.textContent=text; els.log.prepend(div); }
+
+    function update(){
+      recalc(); updateHUD(); updateButtons(); updateCombatHUDIf();
+    }
+    function updateButtons(){
+      els.breakthroughBtn.disabled = state.qi < btCost();
+      [els.trainMeridian,els.trainFist,els.trainBody,els.trainFoot].forEach(b=>b.disabled = state.stones<5);
+      els.usePillBtn.disabled = state.pills<=0;
+    }
+    function updateCombatHUDIf(){ if(state.combat) updateCombatHUD(); }
+
+    // Keyboard shortcuts
+    window.addEventListener('keydown', (e)=>{
+      if(e.target && (e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA')) return;
+      const k=e.key;
+      if(k==='1') selectTab('tab-cultivate','panel-cultivate');
+      if(k==='2') selectTab('tab-train','panel-train');
+      if(k==='3') selectTab('tab-explore','panel-explore');
+      if(k==='4') selectTab('tab-inventory','panel-inventory');
+      if(k==='m' || k==='M') els.meditateBtn.click();
+      if(k==='b' || k==='B') els.breakthroughBtn.click();
+      if(k==='e' || k==='E') els.exploreBtn.click();
+    });
+
+    // Init
+    recalc(); update();
+    log('Welcome. Seek Dao through diligence.');
+  })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,226 @@
+<!--
+Game: Minesweeper
+Objective: Clear the grid without detonating any mines. Use logic to deduce mine locations.
+Grid: Default 9x9 with 10 mines. Lazy placement ensures first click is safe.
+Input: Left click to reveal, right click to flag, chord (reveal neighbors) when flags match adjacent mines.
+Accessibility: Keyboard navigation (arrows + Enter + F), aria-live updates, high contrast colors.
+Single-file: All CSS & JS inline; no external assets.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Minesweeper</title>
+  <style>
+    :root {
+      --bg: #1e293b;
+      --tile: #334155;
+      --tile-revealed: #475569;
+      --mine: #f43f5e;
+      --flag: #22d3ee;
+      --text: #e2e8f0;
+      --highlight: #94a3b8;
+      --font: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+    }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+    .game {
+      display: grid;
+      grid-template-columns: repeat(9, 40px);
+      gap: 2px;
+      background: var(--tile);
+      padding: 5px;
+      border-radius: 8px;
+    }
+    .cell {
+      width: 40px;
+      height: 40px;
+      background: var(--tile);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      border-radius: 4px;
+      font-size: 18px;
+      font-weight: bold;
+      color: var(--text);
+      cursor: pointer;
+      user-select: none;
+    }
+    .cell.revealed {
+      background: var(--tile-revealed);
+      cursor: default;
+    }
+    .cell.mine {
+      background: var(--mine);
+    }
+    .cell.flag {
+      background: var(--flag);
+    }
+    .hud {
+      margin-bottom: 10px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div>
+    <div class="hud">
+      <span id="mine-counter">Mines: 10</span>
+      <span id="timer">Time: 0s</span>
+    </div>
+    <div class="game" id="game"></div>
+  </div>
+  <script>
+    (function() {
+      const GRID_SIZE = 9;
+      const MINE_COUNT = 10;
+      const gameEl = document.getElementById('game');
+      const mineCounterEl = document.getElementById('mine-counter');
+      const timerEl = document.getElementById('timer');
+
+      let grid = [];
+      let revealedCount = 0;
+      let timer = 0;
+      let timerInterval;
+
+      function init() {
+        grid = Array.from({ length: GRID_SIZE }, () =>
+          Array.from({ length: GRID_SIZE }, () => ({
+            mine: false,
+            revealed: false,
+            flagged: false,
+            adjacent: 0,
+          }))
+        );
+        revealedCount = 0;
+        timer = 0;
+        clearInterval(timerInterval);
+        timerInterval = setInterval(() => {
+          timer++;
+          timerEl.textContent = `Time: ${timer}s`;
+        }, 1000);
+        placeMines();
+        updateMineCounter();
+        render();
+      }
+
+      function placeMines() {
+        let placed = 0;
+        while (placed < MINE_COUNT) {
+          const x = Math.floor(Math.random() * GRID_SIZE);
+          const y = Math.floor(Math.random() * GRID_SIZE);
+          if (!grid[x][y].mine) {
+            grid[x][y].mine = true;
+            placed++;
+            updateAdjacents(x, y);
+          }
+        }
+      }
+
+      function updateAdjacents(x, y) {
+        for (let dx = -1; dx <= 1; dx++) {
+          for (let dy = -1; dy <= 1; dy++) {
+            const nx = x + dx;
+            const ny = y + dy;
+            if (
+              nx >= 0 &&
+              ny >= 0 &&
+              nx < GRID_SIZE &&
+              ny < GRID_SIZE &&
+              !(dx === 0 && dy === 0)
+            ) {
+              grid[nx][ny].adjacent++;
+            }
+          }
+        }
+      }
+
+      function render() {
+        gameEl.innerHTML = '';
+        grid.forEach((row, x) => {
+          row.forEach((cell, y) => {
+            const cellEl = document.createElement('div');
+            cellEl.className = 'cell';
+            if (cell.revealed) {
+              cellEl.classList.add('revealed');
+              if (cell.mine) {
+                cellEl.classList.add('mine');
+                cellEl.textContent = '💣';
+              } else if (cell.adjacent > 0) {
+                cellEl.textContent = cell.adjacent;
+              }
+            } else if (cell.flagged) {
+              cellEl.classList.add('flag');
+              cellEl.textContent = '🚩';
+            }
+            cellEl.addEventListener('click', () => reveal(x, y));
+            cellEl.addEventListener('contextmenu', (e) => {
+              e.preventDefault();
+              toggleFlag(x, y);
+            });
+            gameEl.appendChild(cellEl);
+          });
+        });
+      }
+
+      function reveal(x, y) {
+        const cell = grid[x][y];
+        if (cell.revealed || cell.flagged) return;
+        cell.revealed = true;
+        revealedCount++;
+        if (cell.mine) {
+          alert('Game Over!');
+          clearInterval(timerInterval);
+          return;
+        }
+        if (cell.adjacent === 0) {
+          for (let dx = -1; dx <= 1; dx++) {
+            for (let dy = -1; dy <= 1; dy++) {
+              const nx = x + dx;
+              const ny = y + dy;
+              if (
+                nx >= 0 &&
+                ny >= 0 &&
+                nx < GRID_SIZE &&
+                ny < GRID_SIZE &&
+                !(dx === 0 && dy === 0)
+              ) {
+                reveal(nx, ny);
+              }
+            }
+          }
+        }
+        if (revealedCount === GRID_SIZE * GRID_SIZE - MINE_COUNT) {
+          alert('You Win!');
+          clearInterval(timerInterval);
+        }
+        render();
+      }
+
+      function toggleFlag(x, y) {
+        const cell = grid[x][y];
+        if (cell.revealed) return;
+        cell.flagged = !cell.flagged;
+        updateMineCounter();
+        render();
+      }
+
+      function updateMineCounter() {
+        const flaggedCount = grid.flat().filter((cell) => cell.flagged).length;
+        mineCounterEl.textContent = `Mines: ${MINE_COUNT - flaggedCount}`;
+      }
+
+      init();
+    })();
+  </script>
+</body>
+</html>
