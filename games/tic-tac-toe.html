@@ -13,20 +13,22 @@ Conceptualization:
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Tic‑Tac‑Toe</title>
   <style>
-    :root{--bg:#f7f7fb;--tile:#fff;--accent:#1f6feb;--danger:#d93f3f}
+    :root{--bg:#0f172a;--panel:#132035;--tile:#0b1320;--tile2:#16233a;--accent:#22d3ee;--accent2:#6366f1;--text:#e2e8f0;--muted:#94a3b8}
     html,body{height:100%}
-    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;background:var(--bg);display:flex;align-items:flex-start;justify-content:center;padding:28px}
-    .wrap{width:360px;background:linear-gradient(180deg,#fff,#fafaff);box-shadow:0 8px 30px rgba(20,20,50,0.08);border-radius:12px;padding:18px}
-    h1{font-size:18px;margin:0 0 8px}
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;background:radial-gradient(circle at 50% 35%,#1e293b,#0f172a 70%);color:var(--text);display:flex;align-items:flex-start;justify-content:center;padding:28px}
+    .wrap{width:360px;background:linear-gradient(180deg,#1e293b,#142033);border:1px solid #2c3d55;border-radius:12px;padding:18px;box-shadow:0 12px 40px -10px rgba(0,0,0,.55)}
+    h1{font-size:18px;margin:0 0 8px;background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;background-clip:text;color:transparent}
     .meta{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
     .board{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
-    .cell{background:var(--tile);aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;font-size:44px;font-weight:700;color:#222;border-radius:8px;user-select:none;cursor:pointer;box-shadow:inset 0 -2px 0 rgba(0,0,0,0.04)}
+    .cell{background:var(--tile2);aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;font-size:44px;font-weight:800;color:#e2e8f0;border-radius:8px;user-select:none;cursor:pointer;border:1px solid #2c3d55;transition:transform .08s ease}
+    .cell:hover{transform:translateY(-1px)}
     .cell.disabled{cursor:not-allowed;opacity:0.7}
-    .status{font-size:14px;color:#333}
+    .status{font-size:14px;color:var(--muted)}
     .controls{display:flex;gap:8px;margin-top:12px}
-    button{background:var(--accent);color:#fff;border:0;padding:8px 12px;border-radius:8px;cursor:pointer}
-    button.secondary{background:#eee;color:#222}
+    button{background:var(--accent);color:#082f49;border:0;padding:8px 12px;border-radius:8px;cursor:pointer;font-weight:700}
+    button.secondary{background:#334155;color:#e2e8f0}
     .flash{animation:flash 1s ease}
+    .hinted{outline:2px solid var(--accent);box-shadow:0 0 0 3px rgba(34,211,238,.25)}
     @keyframes flash{0%{transform:scale(1)}50%{transform:scale(1.02)}100%{transform:scale(1)}}
   </style>
 </head>
@@ -140,7 +142,14 @@ Conceptualization:
       const hintIndex = findHint();
       if(hintIndex!=null){
         const cell = boardEl.children[hintIndex];
-        cell.animate([{transform:'scale(1)'},{transform:'scale(1.08)'},{transform:'scale(1)'}],{duration:420});
+        if(cell){
+          cell.classList.add('hinted');
+          cell.animate([{transform:'scale(1)'},{transform:'scale(1.08)'},{transform:'scale(1)'}],{duration:420});
+          setTimeout(()=>cell.classList.remove('hinted'), 700);
+          statusEl.textContent = `Hint: Try cell ${hintIndex+1}`;
+        }
+      } else {
+        statusEl.textContent = 'No hint available.';
       }
     });
 

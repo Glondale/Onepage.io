@@ -161,15 +161,24 @@ Single-file: All CSS & JS inline; no external assets.
       draw();
     }
 
+    // resolve CSS custom properties for canvas drawing
+    const css = getComputedStyle(document.documentElement);
+    const COLORS = {
+      food: (css.getPropertyValue('--food')||'#f59e0b').trim(),
+      snake: (css.getPropertyValue('--snake')||'#10b981').trim(),
+      snakeHead: (css.getPropertyValue('--snake-head')||'#34d399').trim(),
+      bg: '#0b1320'
+    };
+
     function draw(){
-      ctx.fillStyle='#0b1320';
+      ctx.fillStyle=COLORS.bg;
       ctx.fillRect(0,0,canvas.width,canvas.height);
       // food
-      ctx.fillStyle='var(--food)';
+      ctx.fillStyle=COLORS.food;
       ctx.fillRect(food.x*CELL, food.y*CELL, CELL, CELL);
       // snake
       snake.forEach((seg,i)=>{
-        ctx.fillStyle = i===0 ? 'var(--snake-head)' : 'var(--snake)';
+        ctx.fillStyle = i===0 ? COLORS.snakeHead : COLORS.snake;
         ctx.fillRect(seg.x*CELL, seg.y*CELL, CELL, CELL);
       });
       if(state==='paused'){ ctx.fillStyle='rgba(0,0,0,.25)'; ctx.fillRect(0,0,canvas.width,canvas.height); }
@@ -187,8 +196,15 @@ Single-file: All CSS & JS inline; no external assets.
       overlay.innerHTML='';
       overlay.appendChild(panel);
       overlay.hidden=false;
+      overlay.style.display='flex';
+      overlay.style.pointerEvents='auto';
     }
-    function hideOverlay(){ overlay.hidden=true; overlay.innerHTML=''; }
+    function hideOverlay(){
+      overlay.hidden=true;
+      overlay.style.display='none';
+      overlay.style.pointerEvents='none';
+      overlay.innerHTML='';
+    }
     function showMenu(){ showOverlay(menuPanel()); }
 
     function menuPanel(){

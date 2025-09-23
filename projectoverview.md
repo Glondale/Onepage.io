@@ -22,6 +22,7 @@ Onepage.io is a collection of compact, single-file HTML5 games intended to be ea
 - 2025-09-16: Added `games/minesweeper.html` (Minesweeper game), updated `index.html` and guidelines.
  - 2025-09-17: Added `games/cultivation-rpg.html` (Cultivation RPG), updated `index.html` and guidelines.
  - 2025-09-17: Added `games/cultivation-rpg.html` (Cultivation RPG), updated `index.html`.
+ - 2025-09-23: Fixed Snake overlay visibility; unified Tic‑Tac‑Toe theme + improved Hint feedback; enhanced Minesweeper with difficulty selector, colors, first-click safety, keyboard, chording, and timer start; replaced broken Cultivation RPG with a working single-file version (tabs, explore, combat).
 
 ## Owner & Contact
 Owner: Glondale
